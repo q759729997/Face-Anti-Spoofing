@@ -1,18 +1,7 @@
-# import tensorflow as tf
+import numpy as np
+
 import tensorflow.compat.v1 as tf 
 tf.disable_v2_behavior()
-import os
-import numpy as np
-import cv2
-import scipy.io as sio
-import heapq
-
-# import tensorflow.contrib.eager as tfe
-# tfe.enable_eager_execution()
-
-# np.set_printoptions(threshold=np.nan)
-
-EPOCHS = 25
 
 
 class FasNet:
@@ -80,49 +69,54 @@ class FasNet:
                       loss='categorical_crossentropy')
         return model
 
+    def init_model(self, model_file):
+        """初始化模型参数"""
+        self.model.load_weights(model_file)
+
     def train(self,
               model_file,
               checkpoint_dir,
               log_dir,
-              max_epoches=EPOCHS,
-              load_weight=True):
+              max_epoches=10,
+              trained_model_file=None):
         self.model.summary()
 
         # tf.keras.utils.plot_model(self.model, to_file='model.png')
 
-        if load_weight:
-            self.model.load_weights(model_file)
-        else:
-            cp_callback = tf.keras.callbacks.ModelCheckpoint(
-                checkpoint_dir,
-                save_weights_only=True,
-                save_best_only=True,
-                period=2,
-                verbose=1)
-            earlystop_cb = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                            mode='min',
-                                                            min_delta=0.001,
-                                                            patience=3,
-                                                            verbose=1)
+        if trained_model_file is not None:
+            print('load_weights：{}'.format(trained_model_file))
+            self.model.load_weights(trained_model_file)
+        cp_callback = tf.keras.callbacks.ModelCheckpoint(
+            checkpoint_dir,
+            save_weights_only=True,
+            save_best_only=True,
+            period=2,
+            verbose=1)
+        # val_loss, min
+        earlystop_cb = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                        mode='min',
+                                                        min_delta=0.001,
+                                                        patience=10,
+                                                        verbose=1)
 
-            tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
+        tb_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir)
 
-            input_name_list = ['hsv_input', 'yuv_input']
-            output_name_list = ['output']
-            self.model.fit_generator(
-                generator=self.dataset.train_data_generator(
-                    input_name_list, output_name_list, 'train.txt'),
-                epochs=max_epoches,
-                steps_per_epoch=self.dataset.train_num() // self.batch_size,
-                validation_data=self.dataset.train_data_generator(
-                    input_name_list, output_name_list, 'val.txt'),
-                validation_steps=self.dataset.val_num() // self.batch_size,
-                callbacks=[cp_callback, earlystop_cb, tb_callback],
-                max_queue_size=10,
-                workers=1,
-                verbose=1)
+        input_name_list = ['hsv_input', 'yuv_input']
+        output_name_list = ['output']
+        self.model.fit_generator(
+            generator=self.dataset.train_data_generator(
+                input_name_list, output_name_list, 'train.txt'),
+            epochs=max_epoches,
+            steps_per_epoch=self.dataset.train_num() // self.batch_size,
+            validation_data=self.dataset.train_data_generator(
+                input_name_list, output_name_list, 'val.txt'),
+            validation_steps=self.dataset.val_num() // self.batch_size,
+            callbacks=[cp_callback, earlystop_cb, tb_callback],
+            max_queue_size=10,
+            workers=1,
+            verbose=1)
 
-            self.model.save(model_file)
+        self.model.save(model_file)
 
     def predict(self):
         input_name_list = ['hsv_input', 'yuv_input']
@@ -135,7 +129,7 @@ class FasNet:
             steps=self.dataset.test_num() // self.batch_size,
             verbose=1)
         preds = predictions
-        print(preds)
+        # print(preds)
         test_data = self.dataset.test_data_generator(input_name_list,
                                                      output_name_list,
                                                      'test.txt',

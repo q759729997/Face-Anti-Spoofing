@@ -10,11 +10,13 @@ class DataSet:
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.input_size = input_size
-        self.__train_num, self.__val_num, self.__test_num = self.__get_samples_num(os.path.join(self.data_dir, 'train.txt'),
-                                                               os.path.join(self.data_dir, 'val.txt'),
-                                                               os.path.join(self.data_dir, 'test.txt'))
+        self.__train_num, self.__val_num, self.__test_num = self.__get_samples_num(
+            os.path.join(self.data_dir, 'train.txt'),
+            os.path.join(self.data_dir, 'val.txt'),
+            os.path.join(self.data_dir, 'test.txt'))
 
-    def __get_samples_num(self, train_label_file, val_label_file, test_label_file):
+    def __get_samples_num(self, train_label_file, val_label_file,
+                          test_label_file):
         train_num = 0
         val_num = 0
         test_num = 0
@@ -26,13 +28,15 @@ class DataSet:
             test_num = len(f.readlines())
         return train_num, val_num, test_num
 
-
     def load_input_img(self, data_dir, file_name, color_space=None):
         img = cv2.imread(os.path.join(data_dir, file_name))
-        
+        if img is None:
+            print('os.path.join(data_dir, file_name):{}'.format(os.path.join(data_dir, file_name)))
+
         if color_space:
+            # print('color_space:{}'.format(color_space))
             img = cv2.cvtColor(img, color_space)
-        
+
         img = cv2.resize(img, (self.input_size, self.input_size)) / 255.0
         return img
 
@@ -44,7 +48,7 @@ class DataSet:
             lines_list = f.readlines()
             if shuffle:
                 random.shuffle(lines_list)
-           
+
             for lines in lines_list:
                 line = lines.rstrip().split(',')
                 label = []
@@ -67,7 +71,12 @@ class DataSet:
     def test_num(self):
         return self.__test_num
 
-    def load_batch_data_label(self, filename_list, label_list, label_num=1, color_space=None, shuffle=True):
+    def load_batch_data_label(self,
+                              filename_list,
+                              label_list,
+                              label_num=1,
+                              color_space=None,
+                              shuffle=True):
         file_num = len(filename_list)
         # print("file_num: %d" % file_num)
         if shuffle:
@@ -81,7 +90,11 @@ class DataSet:
             batch_x = []
             batch_y = []
             for j in range(self.batch_size):
-                img = self.load_input_img(self.data_dir, filename_list[i + j], color_space)
+                try:
+                    img = self.load_input_img(self.data_dir, filename_list[i + j],
+                                              color_space)
+                except Exception:
+                    continue
                 label = label_list[i + j]
                 batch_x.append(img)
                 batch_y.append(label)
@@ -98,7 +111,11 @@ class DataSet:
 
 
 class NUAA():
-    def __init__(self, nuaa_data_dir, batch_size=64, input_size=64, class_num=1):
+    def __init__(self,
+                 nuaa_data_dir,
+                 batch_size=64,
+                 input_size=64,
+                 class_num=1):
         self.dataset = DataSet(nuaa_data_dir, batch_size, input_size)
         self.data_dir = nuaa_data_dir
         self.batch_size = batch_size
@@ -113,9 +130,15 @@ class NUAA():
     def test_num(self):
         return self.dataset.test_num()
 
-    def train_data_generator(self, input_name_list, output_name_list, label_file_name='train.txt', labels_num=1, shuffle=False):
-        filename_list, label_list = self.dataset.load_input_imgpath_label(label_file_name, labels_num=labels_num, shuffle=shuffle)
-        
+    def train_data_generator(self,
+                             input_name_list,
+                             output_name_list,
+                             label_file_name='train.txt',
+                             labels_num=1,
+                             shuffle=False):
+        filename_list, label_list = self.dataset.load_input_imgpath_label(
+            label_file_name, labels_num=labels_num, shuffle=shuffle)
+
         while True:
             file_num = len(filename_list)
             # print("file_num: %d" % file_num)
@@ -131,8 +154,14 @@ class NUAA():
                 batch_x_ycrcb = []
                 batch_y = []
                 for j in range(self.batch_size):
-                    img_hsv = self.dataset.load_input_img(self.data_dir, filename_list[i + j], cv2.COLOR_BGR2HSV)
-                    img_ycrcb = self.dataset.load_input_img(self.data_dir, filename_list[i + j], cv2.COLOR_BGR2YCrCb)
+                    try:
+                        img_hsv = self.dataset.load_input_img(
+                            self.data_dir, filename_list[i + j], cv2.COLOR_BGR2HSV)
+                        img_ycrcb = self.dataset.load_input_img(
+                            self.data_dir, filename_list[i + j],
+                            cv2.COLOR_BGR2YCrCb)
+                    except Exception:
+                        continue
 
                     label = label_list[i + j]
 
@@ -142,30 +171,41 @@ class NUAA():
 
                 batch_x_hsv = np.array(batch_x_hsv, dtype=np.float32)
                 batch_x_ycrcb = np.array(batch_x_ycrcb, dtype=np.float32)
-                
+
                 if labels_num == 1:
                     batch_y = tf.keras.utils.to_categorical(batch_y, 2)
                 else:
                     batch_y = np.array(batch_y)
-                    
+
                 if shuffle:
                     idx = np.random.permutation(range(self.batch_size))
 
                     batch_x_hsv = batch_x_hsv[idx]
                     batch_x_ycrcb = batch_x_ycrcb[idx]
                     batch_y = batch_y[idx]
-                
-                yield ({input_name_list[0]: batch_x_hsv, input_name_list[1]: batch_x_ycrcb},
-                       {output_name_list[0]: batch_y})
-            
-    def test_data_generator(self, input_name_list, output_name_list, label_file_name='train.txt', shuffle=False):
-        filenames, labels = self.dataset.load_input_imgpath_label(label_file_name, labels_num=1, shuffle=shuffle)
 
-        hsv_generator = self.dataset.load_batch_data_label(filenames, labels,
-                                                           color_space=cv2.COLOR_BGR2HSV, shuffle=shuffle)
-        ycrcb_generator = self.dataset.load_batch_data_label(filenames, labels,
-                                                             color_space=cv2.COLOR_BGR2YCrCb,
-                                                             shuffle=shuffle)
+                yield ({
+                    input_name_list[0]: batch_x_hsv,
+                    input_name_list[1]: batch_x_ycrcb
+                }, {
+                    output_name_list[0]: batch_y
+                })
+
+    def test_data_generator(self,
+                            input_name_list,
+                            output_name_list,
+                            label_file_name='train.txt',
+                            shuffle=False):
+        filenames, labels = self.dataset.load_input_imgpath_label(
+            label_file_name, labels_num=1, shuffle=shuffle)
+
+        hsv_generator = self.dataset.load_batch_data_label(
+            filenames, labels, color_space=cv2.COLOR_BGR2HSV, shuffle=shuffle)
+        ycrcb_generator = self.dataset.load_batch_data_label(
+            filenames,
+            labels,
+            color_space=cv2.COLOR_BGR2YCrCb,
+            shuffle=shuffle)
         while True:
 
             hsv_batch_x, hsv_batch_y = next(hsv_generator)
@@ -173,5 +213,9 @@ class NUAA():
             ycrcb_batch_x, ycrcb_batch_y = next(ycrcb_generator)
             # print(hsv_batch_y)
             # print(ycrcb_batch_y)
-            yield ({input_name_list[0]: hsv_batch_x, input_name_list[1]: ycrcb_batch_x},
-                   {output_name_list[0]: hsv_batch_y})
+            yield ({
+                input_name_list[0]: hsv_batch_x,
+                input_name_list[1]: ycrcb_batch_x
+            }, {
+                output_name_list[0]: hsv_batch_y
+            })

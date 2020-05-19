@@ -1,61 +1,67 @@
 import os
+import sys
 
 import numpy as np
 import cv2
 import dlib
 from imutils import face_utils
 
-from models import FasNet
+sys.path.insert(0, './')  # 定义搜索路径的优先顺序，序号从0开始，表示最大优先级
+
+import faceAntiSpoofing  # noqa
+print('faceAntiSpoofing module path :{}'.format(faceAntiSpoofing.__file__))  # 输出测试模块文件位置
+
+from faceAntiSpoofing.models import FasNet  # noqa
+
+
+def crop_face_loosely(shape, img, input_size):
+    x = []
+    y = []
+    for (_x, _y) in shape:
+        x.append(_x)
+        y.append(_y)
+
+    max_x = min(max(x), img.shape[1])
+    min_x = max(min(x), 0)
+    max_y = min(max(y), img.shape[0])
+    min_y = max(min(y), 0)
+
+    Lx = max_x - min_x
+    Ly = max_y - min_y
+
+    Lmax = int(max(Lx, Ly))
+
+    delta = Lmax // 2
+
+    center_x = (max(x) + min(x)) // 2
+    center_y = (max(y) + min(y)) // 2
+    start_x = int(center_x - delta)
+    start_y = int(center_y - delta - 30)
+    end_x = int(center_x + delta)
+    end_y = int(center_y + delta)
+
+    if start_y < 0:
+        start_y = 0
+    if start_x < 0:
+        start_x = 0
+    if end_x > img.shape[1]:
+        end_x = img.shape[1]
+    if end_y > img.shape[0]:
+        end_y = img.shape[0]
+
+    crop_face = img[start_y:end_y, start_x:end_x]
+
+    # cv2.imshow('crop_face', crop_face)
+    img_hsv = cv2.cvtColor(crop_face, cv2.COLOR_BGR2HSV)
+    img_ycrcb = cv2.cvtColor(crop_face, cv2.COLOR_BGR2YCrCb)
+
+    img_hsv = cv2.resize(img_hsv, (input_size, input_size)) / 255.0
+    img_ycrcb = cv2.resize(img_ycrcb, (input_size, input_size)) / 255.0
+    return img_hsv, img_ycrcb, start_y, end_y, start_x, end_x
 
 
 def test_photo(model, img_file, out_img_file, predictor, detector):
     frames = []
-
-    def crop_face_loosely(shape, img, input_size):
-        x = []
-        y = []
-        for (_x, _y) in shape:
-            x.append(_x)
-            y.append(_y)
-
-        max_x = min(max(x), img.shape[1])
-        min_x = max(min(x), 0)
-        max_y = min(max(y), img.shape[0])
-        min_y = max(min(y), 0)
-
-        Lx = max_x - min_x
-        Ly = max_y - min_y
-
-        Lmax = int(max(Lx, Ly))
-
-        delta = Lmax // 2
-
-        center_x = (max(x) + min(x)) // 2
-        center_y = (max(y) + min(y)) // 2
-        start_x = int(center_x - delta)
-        start_y = int(center_y - delta - 30)
-        end_x = int(center_x + delta)
-        end_y = int(center_y + delta)
-
-        if start_y < 0:
-            start_y = 0
-        if start_x < 0:
-            start_x = 0
-        if end_x > img.shape[1]:
-            end_x = img.shape[1]
-        if end_y > img.shape[0]:
-            end_y = img.shape[0]
-
-        crop_face = img[start_y:end_y, start_x:end_x]
-
-        # cv2.imshow('crop_face', crop_face)
-        img_hsv = cv2.cvtColor(crop_face, cv2.COLOR_BGR2HSV)
-        img_ycrcb = cv2.cvtColor(crop_face, cv2.COLOR_BGR2YCrCb)
-
-        img_hsv = cv2.resize(img_hsv, (input_size, input_size)) / 255.0
-        img_ycrcb = cv2.resize(img_ycrcb, (input_size, input_size)) / 255.0
-
-        return img_hsv, img_ycrcb, start_y, end_y, start_x, end_x
 
     frame = cv2.imread(img_file)
     face_rects = detector(frame, 0)
@@ -88,8 +94,8 @@ def test_photo(model, img_file, out_img_file, predictor, detector):
         cv2.putText(frame, text, (start_x, start_y),
                     cv2.FONT_HERSHEY_COMPLEX, 0.7, (0, 255, 0), 1)
         frames = []
-
         # cv2.imshow("frame", frame)
+    return CLASS_NAMES[idx]
 
 
 if __name__ == "__main__":
@@ -104,12 +110,9 @@ if __name__ == "__main__":
                    batch_size=BATCH_SIZE,
                    input_size=INPUT_SIZE,
                    fine_tune_model_file=fine_tune_model_file)
-    model_file = os.path.join(model_root_path, 'fas_model.h5')
-    model.train(model_file,
-                model_root_path,
-                './data/',
-                max_epoches=10,
-                load_weight=True)
+    # model_file = os.path.join(model_root_path, 'fas_model.h5')
+    model_file = os.path.join(model_root_path, 'fas_model_2020-05-19-11-21-29.h5')
+    model.init_model(model_file)
     image_names = [
         'qiaoyongtian_true_1',
         'qiaoyongtian_true_2',
@@ -126,14 +129,20 @@ if __name__ == "__main__":
         'zhaoshengao_false_1',
         'zhaoshengao_false_2',
     ]
+    labels = ['live'] * 7
+    labels.extend(['fake'] * 7)
     face_landmark_path = './data/model/shape_predictor_68_face_landmarks.dat'
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(face_landmark_path)
-    for image_name in image_names:
+    right_count = 0
+    for img_id, image_name in enumerate(image_names):
         img_file = os.path.join('./data/images', '{}.jpg'.format(image_name))
         out_img_file = os.path.join('./data/images',
                                     'masked_{}.jpg'.format(image_name))
-        test_photo(model, img_file, out_img_file, predictor, detector)
+        pred_label = test_photo(model, img_file, out_img_file, predictor, detector)
+        if pred_label == labels[img_id]:
+            right_count += 1
+    print('预测得分：{}/{}'.format(right_count, len(labels)))
     """
     [[4.6944007e-04 9.9953055e-01]] ./data/images/qiaoyongtian_true_1.jpg
     live:0.99953055
